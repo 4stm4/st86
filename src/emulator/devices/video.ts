@@ -30,7 +30,9 @@ export interface VideoViolation {
 }
 
 export class VideoFifo {
-  bytes: number[] = [];
+  private _buf = new Uint8Array(FIFO_CAPACITY);
+  private _head = 0;
+  private _count = 0;
   reserved = 0;
   commandCount = 0;
   opcodeHistogram: Record<number, number> = {};
@@ -39,12 +41,24 @@ export class VideoFifo {
   violations: VideoViolation[] = [];
   vsyncCount = 0;
   private stream: number[] = [];
-  private decodeNeed = 0;
-  private decodeOpcode = -1;
+  decodeNeed = 0;
+  decodeOpcode = -1;
   lastDrainCycle = 0;
 
+  get bytes(): number[] {
+    const out: number[] = [];
+    for (let i = 0; i < this._count; i++) out.push(this._buf[(this._head + i) % FIFO_CAPACITY]!);
+    return out;
+  }
+  set bytes(arr: number[]) {
+    this._head = 0;
+    this._count = Math.min(arr.length, FIFO_CAPACITY);
+    for (let i = 0; i < this._count; i++) this._buf[i] = arr[i]!;
+  }
+
   reset(): void {
-    this.bytes = [];
+    this._head = 0;
+    this._count = 0;
     this.reserved = 0;
     this.commandCount = 0;
     this.opcodeHistogram = {};
@@ -59,7 +73,7 @@ export class VideoFifo {
   }
 
   get free(): number {
-    return Math.max(0, FIFO_CAPACITY - this.bytes.length - this.reserved);
+    return Math.max(0, FIFO_CAPACITY - this._count - this.reserved);
   }
 
   /** Дисциплина «сначала резервируй, потом пиши»: запись в 0xE1. */
@@ -77,12 +91,14 @@ export class VideoFifo {
     } else {
       this.reserved -= 1;
     }
-    if (this.bytes.length >= FIFO_CAPACITY) {
+    if (this._count >= FIFO_CAPACITY) {
       this.violation(cycle, "переполнение FIFO (байт отброшен)");
       return;
     }
-    this.bytes.push(byte & 0xff);
-    this.stream.push(byte & 0xff);
+    const b = byte & 0xff;
+    this._buf[(this._head + this._count) % FIFO_CAPACITY] = b;
+    this._count++;
+    this.stream.push(b);
   }
 
   violation(cycle: number, text: string): void {
@@ -91,10 +107,12 @@ export class VideoFifo {
 
   /** Потребление одного байта потребителем RP2040; возвращает стоимость в тактах master. */
   consume(cycle: number): number {
-    const byte = this.bytes.shift();
-    if (byte === undefined) {
+    if (this._count === 0) {
       return 0;
     }
+    const byte = this._buf[this._head]!;
+    this._head = (this._head + 1) % FIFO_CAPACITY;
+    this._count--;
     if (this.decodeNeed > 0) {
       this.decodeNeed -= 1;
       if (this.decodeNeed === 0) {
@@ -128,6 +146,6 @@ export class VideoFifo {
   }
 
   belowWatermark(): boolean {
-    return this.bytes.length <= FIFO_LOW_WATERMARK;
+    return this._count <= FIFO_LOW_WATERMARK;
   }
 }

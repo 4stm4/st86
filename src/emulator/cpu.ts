@@ -299,7 +299,7 @@ export class Cpu {
         // SBB
         const c = this.getFlag(FLAG_CF) ? 1 : 0;
         res = a - b - c;
-        this.setSubFlags(a, b + c, res, w);
+        this.setSubFlags(a, (b + c) & (w ? 0xffff : 0xff), res, w);
         break;
       }
       case 4: // AND
@@ -1098,6 +1098,7 @@ export class Cpu {
     const mask = w ? 0xffff : 0xff;
     const sign = w ? 0x8000 : 0x80;
     const bits = w ? 16 : 8;
+    const origV = v;
     this.cycles += (ea.isReg ? 2 : 15) + (useCl ? 4 * count : 0);
     if (count === 0) return;
     if (count > 32) count = 32;
@@ -1159,7 +1160,15 @@ export class Cpu {
       this.setFlag(FLAG_SF, (v & sign) !== 0);
       this.setFlag(FLAG_PF, PARITY[v & 0xff] === 1);
     }
-    this.setFlag(FLAG_OF, count === 1 ? ((v & sign) !== 0) !== this.getFlag(FLAG_CF) : this.getFlag(FLAG_OF));
+    if (count === 1) {
+      if (reg === 5) {
+        this.setFlag(FLAG_OF, (origV & sign) !== 0);
+      } else if (reg === 7) {
+        this.setFlag(FLAG_OF, false);
+      } else {
+        this.setFlag(FLAG_OF, ((v & sign) !== 0) !== this.getFlag(FLAG_CF));
+      }
+    }
     void bits;
     if (w) this.writeEa16(ea, v);
     else this.writeEa8(ea, v);
@@ -1357,25 +1366,26 @@ export class Cpu {
 
   private decimalAdjust(op: number): void {
     let al = this.getReg8(0);
+    const origAl = al;
     const af = this.getFlag(FLAG_AF);
     const cf = this.getFlag(FLAG_CF);
     if (op === 0x27) {
       if ((al & 0x0f) > 9 || af) {
-        al += 6;
+        al = (al + 6) & 0xff;
         this.setFlag(FLAG_AF, true);
       } else this.setFlag(FLAG_AF, false);
-      if (al > 0x9f || cf) {
-        al += 0x60;
+      if (origAl > 0x99 || cf) {
+        al = (al + 0x60) & 0xff;
         this.setFlag(FLAG_CF, true);
       } else this.setFlag(FLAG_CF, false);
       this.setReg8(0, al);
     } else if (op === 0x2f) {
       if ((al & 0x0f) > 9 || af) {
-        al -= 6;
+        al = (al - 6) & 0xff;
         this.setFlag(FLAG_AF, true);
       } else this.setFlag(FLAG_AF, false);
-      if (al > 0x9f || cf) {
-        al -= 0x60;
+      if (origAl > 0x99 || cf) {
+        al = (al - 0x60) & 0xff;
         this.setFlag(FLAG_CF, true);
       } else this.setFlag(FLAG_CF, false);
       this.setReg8(0, al);

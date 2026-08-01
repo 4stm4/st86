@@ -224,6 +224,16 @@ export class Machine implements Bus {
 
   portIn16(port: number): number {
     if (port === 0xe4) return this.video.free & 0xffff;
+    if (port >= 0x40 && port <= 0x42) {
+      this.checkRecovery("pit");
+      const lo = this.pit.read(port, this.clock);
+      const hi = this.pit.read(port + 1, this.clock);
+      return lo | (hi << 8);
+    }
+    if (port === 0x20) {
+      this.checkRecovery("pic");
+      return this.pic.read(port) | (this.pic.read(port + 1) << 8);
+    }
     return this.portIn8(port) | (this.portIn8(port + 1) << 8);
   }
 
@@ -296,6 +306,18 @@ export class Machine implements Bus {
   }
 
   portOut16(port: number, value: number): void {
+    if (port >= 0x40 && port <= 0x42) {
+      this.checkRecovery("pit");
+      this.pit.write(port, value & 0xff);
+      this.pit.write(port + 1, (value >> 8) & 0xff);
+      return;
+    }
+    if (port === 0x20) {
+      this.checkRecovery("pic");
+      this.pic.write(port, value & 0xff);
+      this.pic.write(port + 1, (value >> 8) & 0xff);
+      return;
+    }
     this.portOut8(port, value & 0xff);
     this.portOut8(port + 1, (value >> 8) & 0xff);
   }
@@ -333,7 +355,7 @@ export class Machine implements Bus {
   }
 
   private ensureVideoDrain(): void {
-    if (this.events.list().some((e) => e.kind === EventKind.VideoDrain)) return;
+    if (this.events.has(EventKind.VideoDrain)) return;
     this.events.schedule(this.clock + 4, DeviceId.Video, 0, EventKind.VideoDrain);
   }
 
@@ -483,6 +505,8 @@ export class Machine implements Bus {
         idleCycles: this.video.idleCycles,
         reserved: this.video.reserved,
         vsyncCount: this.video.vsyncCount,
+        decodeNeed: this.video.decodeNeed,
+        decodeOpcode: this.video.decodeOpcode,
       },
       markers: this.markers.map((m) => ({ ...m })),
       metrics: { ...this.metrics, irqToWake: [...this.metrics.irqToWake] },
@@ -513,6 +537,8 @@ export class Machine implements Bus {
     this.video.idleCycles = s.videoStats.idleCycles;
     this.video.reserved = s.videoStats.reserved;
     this.video.vsyncCount = s.videoStats.vsyncCount;
+    this.video.decodeNeed = s.videoStats.decodeNeed ?? 0;
+    this.video.decodeOpcode = s.videoStats.decodeOpcode ?? -1;
     this.markers = s.markers.map((m) => ({ ...m }));
     this.metrics = { ...s.metrics, irqToWake: [...s.metrics.irqToWake] };
     this.violations = s.violations.map((v) => ({ ...v }));
@@ -552,6 +578,8 @@ export interface MachineSnapshot {
     idleCycles: number;
     reserved: number;
     vsyncCount: number;
+    decodeNeed?: number;
+    decodeOpcode?: number;
   };
   markers: Marker[];
   metrics: Metrics;
