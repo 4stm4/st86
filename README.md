@@ -1,29 +1,113 @@
-# Welcome to your Lovable project
+# st86 — стенд «Челябинск-1»
 
-This project was built with [Lovable](https://lovable.dev).
+Модель платы на КР1810ВМ86 (i8086), работающая целиком в браузере. Единственная ось времени — такты ЦП; устройства (ВИ53, ВН59А, видео-FIFO, UART, блочное устройство) синхронизируются через детерминированную очередь событий. Главная измеряемая величина — ограниченная худшая задержка (worst-case latency), а не средняя пропускная способность.
 
-## Build with Lovable
+## Быстрый старт
 
-Open your project in the [Lovable editor](https://lovable.dev) and keep building.
+```bash
+# Установить зависимости (Node.js 20+ / Bun)
+npm install
 
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: connect the project to GitHub and every change made in Lovable is committed straight to your repository.
-- **Full ownership**: this code is yours. Push to your repository and your changes sync back into Lovable, ready for your next prompt.
-
-## Development
-
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
-
-```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
+# Запустить dev-сервер
 npm run dev
 ```
 
-## Built with
+Откройте `http://localhost:5173` в браузере.
 
-- TanStack Start
-- TypeScript
-- React
-- Tailwind CSS
+## Что можно делать
+
+### Главная страница (`/`)
+
+1. **Выбрать образ** — встроенные демо-образы или загрузить свой `.bin` файл (загружается в `CS:IP = 0000:0100`).
+2. **Редактировать сценарий** — JSON-формат v1 в текстовом поле. Сценарий задаёт `cycle_limit`, конфигурацию wait states и набор утверждений (asserts).
+3. **Прогнать** — кнопка «Прогнать сценарий» запускает машину до завершения и выдаёт вердикт с кодом возврата.
+4. **Пошаговое выполнение** — кнопки «Старт», «Пауза», «Шаг», «+1000 шагов» для отладки.
+
+### Остальные страницы
+
+| Путь | Что показывает |
+|------|---------------|
+| `/machine` | Регистры ЦП, дамп памяти, дизассемблер |
+| `/trace` | Поток событий и маркеров |
+| `/metrics` | Гистограммы латентности IRQ → пробуждение |
+| `/bench` | Бенчмарк производительности эмулятора |
+| `/report` | Машиночитаемый отчёт (JSON) |
+
+## Формат сценария
+
+```json
+{
+  "version": 1,
+  "name": "boot-basic",
+  "image": "boot",
+  "cycle_limit": 5000000,
+  "config": {
+    "wait_states": {
+      "ram": 0,
+      "rom": 0,
+      "timerPic": 1,
+      "videoFifo": 0,
+      "recoveryCycles": 8
+    }
+  },
+  "asserts": [
+    { "kind": "checkpoint_order", "values": ["boot", "vfs_ready", "done"] },
+    { "kind": "metric", "name": "max_irq_blocked", "max_cycles": 5000 },
+    { "kind": "metric", "name": "irq_to_wake_max", "irq": 0, "max_cycles": 4000 },
+    { "kind": "mem", "addr": "0x05010", "equals_hex": "DEADBEEF" },
+    { "kind": "uart_contains", "text": "OK" },
+    { "kind": "video_stream_hash", "equals": "sha256:..." },
+    { "kind": "no_violations" }
+  ]
+}
+```
+
+### Виды утверждений
+
+| `kind` | Описание |
+|--------|----------|
+| `checkpoint_order` | Маркеры-чекпоинты пройдены в заданном порядке |
+| `metric` | Метрика латентности не превышает порог (`max_irq_blocked`, `irq_to_wake_max`, `video_idle_cycles`) |
+| `mem` | Содержимое памяти по адресу совпадает с ожидаемым hex-значением |
+| `uart_contains` | UART-вывод содержит заданную строку |
+| `video_stream_hash` | SHA-256 видеопотока совпадает |
+| `no_violations` | Нет нарушений дисциплины (FIFO-протокол, recovery time) |
+
+### Коды возврата
+
+| Код | Значение |
+|-----|----------|
+| 0 | Успех |
+| 1 | Провал утверждения |
+| 2 | Нарушение инварианта/дисциплины |
+| 3 | Исчерпан `cycle_limit` |
+| 4 | Внутренняя ошибка стенда |
+
+## Карта портов
+
+| Порт | Устройство |
+|------|-----------|
+| `0x20–0x21` | ВН59А — контроллер прерываний |
+| `0x40–0x43` | ВИ53 — программируемый таймер |
+| `0xD0–0xD4` | Блочное устройство (PIO) |
+| `0xE0–0xE1` | Видео-FIFO: данные / резервирование |
+| `0xE2–0xE3` | UART: данные / статус |
+| `0xE4–0xE5` | FIFO_FREE (read-only, 16 бит) |
+| `0xE6` | Флаги платы |
+| `0xF0–0xF6` | Тестовый порт (semihosting) |
+
+## Скрипты
+
+```bash
+npm run dev        # Dev-сервер с HMR
+npm run build      # Production-сборка
+npm run preview    # Превью production-сборки
+npm run lint       # ESLint
+npm run format     # Prettier
+```
+
+## Стек
+
+- TypeScript, React 19, TanStack Start / Router
+- Tailwind CSS 4, Radix UI, Recharts
+- Vite 8, Vitest
