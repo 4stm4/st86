@@ -15,6 +15,10 @@ export class EventQueue {
     this.items = [];
   }
 
+  has(kind: EventKind): boolean {
+    return this.items.some((e) => e.kind === kind);
+  }
+
   list(): SimEvent[] {
     return [...this.items].sort(cmp);
   }
