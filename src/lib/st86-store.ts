@@ -203,4 +203,18 @@ export function runBenchmark(wallMs = 1500): void {
   });
 }
 
+export function sendUartByte(byte: number): void {
+  const m = state.machine;
+  if (!m) return;
+  m.uart.rxQueue.push(byte & 0xff);
+}
+
+export function sendUartText(text: string): void {
+  const m = state.machine;
+  if (!m) return;
+  for (let i = 0; i < text.length; i++) {
+    m.uart.rxQueue.push(text.charCodeAt(i) & 0xff);
+  }
+}
+
 export { DEMO_IMAGES };

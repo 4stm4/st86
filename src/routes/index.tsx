@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Badge, Button, Panel, Stat } from "@/components/st86/ui";
 import { useSt86 } from "@/hooks/use-st86";
 import {
@@ -10,11 +10,14 @@ import {
   run,
   runToCompletion,
   selectImage,
+  sendUartByte,
+  sendUartText,
   setCustomImage,
   stepMany,
   stepOnce,
 } from "@/lib/st86-store";
 import { EXIT_MEANING } from "@/emulator/types";
+import { VideoRenderer } from "@/emulator/video-renderer";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -229,10 +232,12 @@ function RunPanel() {
             </dl>
           </Panel>
 
-          <Panel title="Вывод UART">
-            <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-xs text-ok">
-              {s.machine?.uart.out || "— пусто —"}
-            </pre>
+          <Panel title="UART-терминал">
+            <UartTerminal machine={s.machine} />
+          </Panel>
+
+          <Panel title="Видеовыход RP2040">
+            <VideoCanvas machine={s.machine} />
           </Panel>
 
           <Panel title="Дальше">
@@ -251,5 +256,123 @@ function RunPanel() {
         </div>
       </div>
     </main>
+  );
+}
+
+function UartTerminal({ machine }: { machine: import("@/emulator/machine").Machine | null }) {
+  const outRef = useRef<HTMLPreElement>(null);
+  const [inputVal, setInputVal] = useState("");
+  const uartOut = machine?.uart.out ?? "";
+
+  useEffect(() => {
+    if (outRef.current) outRef.current.scrollTop = outRef.current.scrollHeight;
+  }, [uartOut]);
+
+  const onKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (!machine) return;
+      if (e.key === "Enter") {
+        sendUartText(inputVal + "\r");
+        setInputVal("");
+        e.preventDefault();
+      }
+    },
+    [machine, inputVal],
+  );
+
+  const onSendChar = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (!machine) return;
+      if (e.key.length === 1) {
+        sendUartByte(e.key.charCodeAt(0));
+      } else if (e.key === "Enter") {
+        sendUartByte(0x0d);
+      } else if (e.key === "Backspace") {
+        sendUartByte(0x08);
+      }
+    },
+    [machine],
+  );
+
+  return (
+    <div>
+      <pre
+        ref={outRef}
+        className="max-h-48 min-h-[6rem] overflow-auto whitespace-pre-wrap break-all border border-border bg-background p-2 font-mono text-xs text-ok"
+      >
+        {uartOut || "— пусто —"}
+      </pre>
+      <div className="mt-2 flex gap-2">
+        <input
+          type="text"
+          value={inputVal}
+          onChange={(e) => setInputVal(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder="Ввод → Enter (строка в rxQueue)"
+          disabled={!machine}
+          className="flex-1 border border-input bg-background px-2 py-1 font-mono text-xs text-foreground outline-none focus:border-ring disabled:opacity-40"
+        />
+        <Button
+          onClick={() => {
+            if (inputVal) {
+              sendUartText(inputVal + "\r");
+              setInputVal("");
+            }
+          }}
+          disabled={!machine || !inputVal}
+        >
+          Send
+        </Button>
+      </div>
+      <p className="mt-1 text-[10px] text-muted-foreground">
+        Каждый символ попадает в uart.rxQueue — прошивка читает через IN 0xE2
+      </p>
+    </div>
+  );
+}
+
+const videoRenderer = new VideoRenderer();
+
+function VideoCanvas({ machine }: { machine: import("@/emulator/machine").Machine | null }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [rendered, setRendered] = useState(false);
+
+  const render = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !machine) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const stream = machine.video.streamBytes();
+    if (stream.length === 0) {
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(0, 0, videoRenderer.width, videoRenderer.height);
+      setRendered(false);
+      return;
+    }
+    videoRenderer.renderStream(stream, ctx);
+    setRendered(true);
+  }, [machine]);
+
+  useEffect(() => {
+    render();
+  }, [render]);
+
+  return (
+    <div>
+      <canvas
+        ref={canvasRef}
+        width={videoRenderer.width}
+        height={videoRenderer.height}
+        className="w-full border border-border bg-black"
+        style={{ imageRendering: "pixelated" }}
+      />
+      <div className="mt-2 flex items-center gap-2">
+        <Button onClick={render}>Обновить</Button>
+        <span className="font-mono text-[10px] text-muted-foreground">
+          {machine ? `${machine.video.commandCount} команд · поток ${machine.video.streamBytes().length} Б` : "нет машины"}
+          {rendered ? " · отрисовано" : ""}
+        </span>
+      </div>
+    </div>
   );
 }

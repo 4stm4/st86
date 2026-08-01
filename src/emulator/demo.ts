@@ -112,6 +112,33 @@ function buildFifoViolationImage(): Uint8Array {
   return a.build();
 }
 
+/** Hello World: UART + видеовывод текста. */
+function buildHelloImage(): Uint8Array {
+  const a = new Asm(0x0100);
+  a.cli();
+  a.movR16(0, 0x0000);
+  a.movSregAx(2);
+  a.movSregAx(3);
+  a.movR16(R_SP, 0xfffe);
+
+  a.marker(0x01, CHECKPOINTS["boot"]!);
+  a.uart("Hello, World!\r\n");
+
+  // видео: чёрный фон, зелёный текст, вывести "Hello, World!"
+  a.videoCommand(0x02, [0x00]); // CLEAR чёрным
+  a.videoCommand(0x03, [0x0a, 0x00]); // SET_COLOR fg=green, bg=black
+  const msg = "Hello, World!";
+  for (let i = 0; i < msg.length; i++) {
+    a.videoCommand(0x07, [i, 0, msg.charCodeAt(i)]); // TEXT col, row, char
+  }
+  a.videoCommand(0x08, []); // FLUSH
+
+  a.marker(0x01, CHECKPOINTS["done"]!);
+  a.finish(0);
+  a.hlt();
+  return a.build();
+}
+
 export const DEMO_IMAGES: DemoImage[] = [
   {
     id: "boot",
@@ -127,6 +154,14 @@ export const DEMO_IMAGES: DemoImage[] = [
     name: "bench — бесконечный цикл",
     description: "Плотный цикл без прерываний: измерение эмулируемых тактов в секунду.",
     bytes: buildBenchImage(),
+    segment: 0x0000,
+    offset: 0x0100,
+  },
+  {
+    id: "hello",
+    name: "hello — Hello, World!",
+    description: "Минимальный образ: вывод «Hello, World!» в UART и на видеоэкран.",
+    bytes: buildHelloImage(),
     segment: 0x0000,
     offset: 0x0100,
   },
