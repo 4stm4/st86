@@ -38,7 +38,7 @@ let state: State = {
   outcome: null,
   clock: 0,
   instructions: 0,
-  stepsPerChunk: 200_000,
+  stepsPerChunk: 50_000,
   benchResult: null,
   error: null,
 };
@@ -142,13 +142,17 @@ export function run(): void {
   if (m.finished) return;
   emit({ runState: "running" });
   const limit = state.scenario.cycle_limit;
+  let uiTick = 0;
   const tick = (): void => {
     if (state.runState !== "running" || !state.machine) return;
     const machine = state.machine;
     const outcome = machine.run(limit, state.stepsPerChunk);
-    emit({ clock: machine.clock, instructions: machine.cpu.instructions });
     if (outcome === "finished") return finalize("finished");
     if (outcome === "limit") return finalize("limit");
+    uiTick++;
+    if (uiTick % 5 === 0) {
+      emit({ clock: machine.clock, instructions: machine.cpu.instructions });
+    }
     timer = setTimeout(tick, 0);
   };
   timer = setTimeout(tick, 0);

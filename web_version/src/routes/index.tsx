@@ -335,7 +335,7 @@ const videoRenderer = new VideoRenderer();
 
 function VideoCanvas({ machine }: { machine: import("@/emulator/machine").Machine | null }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [rendered, setRendered] = useState(false);
+  const [info, setInfo] = useState("");
 
   const render = useCallback(() => {
     const canvas = canvasRef.current;
@@ -346,16 +346,12 @@ function VideoCanvas({ machine }: { machine: import("@/emulator/machine").Machin
     if (stream.length === 0) {
       ctx.fillStyle = "#000000";
       ctx.fillRect(0, 0, videoRenderer.width, videoRenderer.height);
-      setRendered(false);
+      setInfo("поток пуст");
       return;
     }
     videoRenderer.renderStream(stream, ctx);
-    setRendered(true);
+    setInfo(`${machine.video.commandCount} команд · поток ${stream.length} Б · отрисовано`);
   }, [machine]);
-
-  useEffect(() => {
-    render();
-  }, [render]);
 
   return (
     <div>
@@ -369,8 +365,7 @@ function VideoCanvas({ machine }: { machine: import("@/emulator/machine").Machin
       <div className="mt-2 flex items-center gap-2">
         <Button onClick={render}>Обновить</Button>
         <span className="font-mono text-[10px] text-muted-foreground">
-          {machine ? `${machine.video.commandCount} команд · поток ${machine.video.streamBytes().length} Б` : "нет машины"}
-          {rendered ? " · отрисовано" : ""}
+          {machine ? info || "нажмите «Обновить»" : "нет машины"}
         </span>
       </div>
     </div>
